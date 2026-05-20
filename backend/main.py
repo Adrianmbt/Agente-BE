@@ -1,75 +1,77 @@
-from fastapi import FastAPI, Depends, HTTPException, Body
+"""
+main.py — Punto de entrada de la API FastAPI del Agente Postulador.
+"""
+
+from fastapi import FastAPI, BackgroundTasks, Depends
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi import BackgroundTasks
-from pydantic import BaseModel
-from typing import List, Optional
-import os
-from dotenv import load_dotenv
+from sqlalchemy.orm import Session
 
+from database import engine, get_db, Base
+import models  # Importar modelos para que SQLAlchemy los registre
+from routers.cv import router as cv_router
+from routers.applications import router as applications_router
+from routers.jobs import router as jobs_router, process_full_application
+from schemas.application import ScrapeRequest
 
-from services.cv_tailor import cv_tailor
-from services.job_scraper import job_scraper
-from services.supabase_client import supabase
+# ── Crear tablas en la base de datos (SQLite en desarrollo) ──────────────────
+Base.metadata.create_all(bind=engine)
 
-load_dotenv()
+# ── Aplicación FastAPI ────────────────────────────────────────────────────────
+app = FastAPI(
+    title="JobAgent AI API",
+    description="Agente inteligente de postulaciones — Adapta CVs, gestiona aplicaciones y prepara entrevistas.",
+    version="1.0.0",
+    docs_url="/docs",
+    redoc_url="/redoc"
+)
 
-app = FastAPI(title="AI Job Application Agent API")
-
+# ── CORS (permite peticiones desde el frontend React) ────────────────────────
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=["http://localhost:5173", "http://localhost:3000", "*"],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
 
-class ScrapeRequest(BaseModel):
-    url: str
+# ── Registrar routers ─────────────────────────────────────────────────────────
+app.include_router(cv_router)
+app.include_router(applications_router)
+app.include_router(jobs_router)
 
-class TailorRequest(BaseModel):
-    base_cv_text: str
-    job_description: str
 
-@app.get("/")
+# ── Endpoints raíz ───────────────────────────────────────────────────────────
+@app.get("/", tags=["Health"])
 async def root():
-    return {"message": "AI Job Application Agent API is running"}
-
-@app.post("/analyze-job")
-async def analyze_job(request: ScrapeRequest):
-    try:
-        job_data = await job_scraper.scrape_job(request.url)
-        return job_data
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
-
-@app.post("/tailor-cv")
-async def tailor_cv(request: TailorRequest):
-    try:
-        tailored_cv = await cv_tailor.tailor_cv(request.base_cv_text, request.job_description)
-        return {"tailored_cv": tailored_cv}
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
-
-@app.post("/auto-apply")
-async def auto_apply(request: ScrapeRequest, background_tasks: BackgroundTasks):
-    # El servidor responde de inmediato y sigue trabajando internamente
-    background_tasks.add_task(process_full_application, request.url)
-    return {"status": "Postulación iniciada en segundo plano"}
-
-@app.post("/generate-email")
-async def generate_email(request: TailorRequest):
-    # Lógica similar a tailor_cv pero enfocada en el cuerpo del correo
-    pass
+    return {
+        "status": "online",
+        "app": "JobAgent AI",
+        "version": "1.0.0",
+        "docs": "/docs"
+    }
 
 
-@app.get("/applications")
-async def get_applications():
-    if not supabase:
-        return {"error": "Supabase not configured"}
-    
-    response = supabase.table("applications").select("*").execute()
-    return response.data
+@app.get("/health", tags=["Health"])
+async def health():
+    return {"status": "healthy"}
 
+
+# ── Auto-apply en background (mantiene compatibilidad con el endpoint original) ─
+@app.post("/api/auto-apply", tags=["Jobs"])
+async def auto_apply(
+    request: ScrapeRequest,
+    background_tasks: BackgroundTasks,
+    db: Session = Depends(get_db)
+):
+    """
+    Lanza el proceso completo de postulación en background:
+    scraping → adaptación de CV → guardado en DB.
+    """
+    background_tasks.add_task(process_full_application, request.url, db)
+    return {"status": "iniciado", "message": "Procesando la oferta en segundo plano.", "url": request.url}
+
+
+# ── Inicio con uvicorn ────────────────────────────────────────────────────────
 if __name__ == "__main__":
     import uvicorn
-    uvicorn.run(app, host="0.0.0.0", port=8000)
+    uvicorn.run("main:app", host="0.0.0.0", port=8000, reload=True)

@@ -1,10 +1,27 @@
+# Web framework
 fastapi
-uvicorn
+uvicorn[standard]
+
+# Database (SQLite → PostgreSQL migration ready)
+sqlalchemy
+# psycopg2-binary  # Descomentar al migrar a PostgreSQL/Supabase
+
+# Environment & config
 python-dotenv
-supabase
-google-generativeai
 pydantic
 pydantic-settings
 python-multipart
+
+# PDF parsing
+pymupdf
+
+# AI
 openai
+google-generativeai
+
+# Web scraping & automation
 playwright
+beautifulsoup4
+
+# Supabase (para migración futura)
+supabase

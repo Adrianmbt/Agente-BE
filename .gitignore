@@ -42,3 +42,11 @@ yarn-error.log*
 
 # Local credentials
 cred.md
+
+# Database
+*.db
+
+# PDF CVs
+*.pdf
+
+
